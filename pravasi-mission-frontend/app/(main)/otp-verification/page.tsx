@@ -1,158 +1,250 @@
- "use client";
+"use client";
 
-// import { useState, useRef } from "react";
-// import { useRouter } from "next/navigation";
-// import Image from "next/image";
-// import { ArrowLeft, Lock } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 
- export default function OTPVerificationPage() {
-//   const router = useRouter();
-//   const [otp, setOtp] = useState<string[]>(Array(6).fill(""));
-// //   otp stored as 6digit otp ["1", "4", "9", "2", "7", "6"]
-//   const inputsRef = useRef<(HTMLInputElement | null)[]>([]);
-// //   references to each inp box- auto focusing next inp
+type PendingSignupOtp = {
+  verification_id: string;
+  email: string;
+  phone_country_code: string;
+  phone_number: string;
+  first_name?: string;
+  last_name?: string;
+};
 
-//   function handleChange(value: string, index: number) {
-//     if (!/^\d?$/.test(value)) return;
-//     // handling otp inp -allow only 0-9 no leter or symbol
+const OTP_LENGTH = 6;
 
-//     const newOtp = [...otp];
-//     newOtp[index] = value;
-//     setOtp(newOtp);
-//     // otp update
+function maskEmail(email: string) {
+  const [name, domain] = email.split("@");
+  if (!name || !domain) return email;
+  if (name.length <= 2) return `${name[0]}***@${domain}`;
+  return `${name.slice(0, 2)}***@${domain}`;
+}
 
-//     if (value && index < 5) {
-//       inputsRef.current[index + 1]?.focus();
-//     }
-//   }
+function maskPhone(phone: string) {
+  if (!phone) return "";
+  return `******${phone.slice(-4)}`;
+}
 
-//   function handleVerify() {
-//     const enteredOtp = otp.join("");
+export default function OTPVerificationPage() {
+  const router = useRouter();
+  const baseURL = process.env.NEXT_PUBLIC_BASE_URL;
+  const [context, setContext] = useState<PendingSignupOtp | null>(null);
+  const [emailOtp, setEmailOtp] = useState<string[]>(Array(OTP_LENGTH).fill(""));
+  const [phoneOtp, setPhoneOtp] = useState<string[]>(Array(OTP_LENGTH).fill(""));
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const emailOtpRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const phoneOtpRefs = useRef<(HTMLInputElement | null)[]>([]);
 
-//     if (enteredOtp.length !== 6) {
-//       alert("Please enter the complete OTP");
-//       return;
-//     }
+  useEffect(() => {
+    const saved = window.sessionStorage.getItem("pendingSignupOtp");
+    if (!saved) {
+      setErrorMessage("Signup verification session not found. Please sign up again.");
+      return;
+    }
+    try {
+      const parsed = JSON.parse(saved) as PendingSignupOtp;
+      setContext(parsed);
+    } catch {
+      setErrorMessage("Invalid signup verification session. Please sign up again.");
+    }
+  }, []);
 
-//     // 👉 API verification goes here later
+  const setCookie = (name: string, value: string, maxAgeSeconds: number) => {
+    document.cookie = `${name}=${encodeURIComponent(value)}; Max-Age=${maxAgeSeconds}; Path=/; SameSite=Lax`;
+  };
 
-//     router.push("/dashboard/returnee"); // redirect after success
-//   }
-return(
-    <div className="min-h-screen grid grid-cols-1 md:grid-cols-2">
+  const updateOtp =
+    (
+      value: string,
+      index: number,
+      otp: string[],
+      setOtp: React.Dispatch<React.SetStateAction<string[]>>,
+      refs: React.MutableRefObject<(HTMLInputElement | null)[]>
+    ) =>
+    () => {
+      if (!/^\d?$/.test(value)) return;
 
-    </div>
-)
-//   return (
-//     <div className="min-h-screen grid grid-cols-1 md:grid-cols-2">
+      const next = [...otp];
+      next[index] = value;
+      setOtp(next);
 
-//       {/* LEFT SECTION */}
-//       <div className="hidden md:flex flex-col justify-between p-10 bg-gradient-to-br from-green-700 to-emerald-900 text-white">
+      if (value && index < OTP_LENGTH - 1) {
+        refs.current[index + 1]?.focus();
+      }
+    };
 
-//         <div className="flex items-center gap-2 font-semibold">
-//           <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center">
-//             🌍
-//           </div>
-//           NORKA Roots
-//         </div>
+  const handleOtpKeyDown =
+    (index: number, otp: string[], refs: React.MutableRefObject<(HTMLInputElement | null)[]>) =>
+    (event: React.KeyboardEvent<HTMLInputElement>) => {
+      if (event.key === "Backspace" && !otp[index] && index > 0) {
+        refs.current[index - 1]?.focus();
+      }
+    };
 
-//         <div>
-//           <h1 className="text-3xl font-semibold leading-snug">
-//             Connecting Global Keralites<br />to Their Roots
-//           </h1>
+  const handleVerify = async () => {
+    if (!context) return;
+    setErrorMessage(null);
+    setSuccessMessage(null);
 
-//           <p className="mt-4 text-sm text-green-100 max-w-md">
-//             Secure, efficient, and transparent services for the welfare of
-//             Non-Resident Keralites. Verify your identity to access your
-//             personalized dashboard.
-//           </p>
+    const emailOtpCode = emailOtp.join("");
+    const phoneOtpCode = phoneOtp.join("");
 
-//           <div className="flex gap-10 mt-8 text-sm">
-//             <div>
-//               <p className="text-2xl font-bold">4M+</p>
-//               <p className="text-green-200">Registered NRKs</p>
-//             </div>
-//             <div>
-//               <p className="text-2xl font-bold">24/7</p>
-//               <p className="text-green-200">Support Services</p>
-//             </div>
-//           </div>
-//         </div>
+    if (emailOtpCode.length !== OTP_LENGTH || phoneOtpCode.length !== OTP_LENGTH) {
+      setErrorMessage("Please enter both 6-digit OTP codes.");
+      return;
+    }
 
-//         <div />
-//       </div>
+    setIsSubmitting(true);
+    try {
+      const response = await fetch(`${baseURL}/api/auth/signup/verify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          verification_id: context.verification_id,
+          email_otp: emailOtpCode,
+          phone_otp: phoneOtpCode,
+        }),
+      });
 
-//       {/* RIGHT SECTION */}
-//       <div className="flex items-center justify-center px-6">
-//         <div className="w-full max-w-md space-y-6">
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload?.message || "OTP verification failed.");
+      }
 
-//           {/* Back */}
-//           <button
-//             onClick={() => router.push("/login")}
-//             className="flex items-center gap-2 text-sm text-gray-500 hover:text-green-700"
-//           >
-//             <ArrowLeft size={16} /> Back to Login
-//           </button>
+      const data = payload?.data || {};
+      const accessToken = data.access_token;
+      const refreshToken = data.refresh_token;
+      const userDetails = data.user;
+      const roleId = Array.isArray(userDetails?.roles) ? userDetails.roles[0]?.role_id : null;
+      const maxAgeSeconds = 60 * 60 * 24 * 7;
 
-//           {/* Icon */}
-//           <div className="w-14 h-14 rounded-full bg-green-100 flex items-center justify-center">
-//             <Lock className="text-green-700" />
-//           </div>
+      if (accessToken) setCookie("accessToken", accessToken, maxAgeSeconds);
+      if (refreshToken) setCookie("refresh_token", refreshToken, maxAgeSeconds);
+      if (userDetails) setCookie("userDetails", JSON.stringify(userDetails), maxAgeSeconds);
 
-//           <h2 className="text-2xl font-semibold text-gray-800">
-//             Verify Your Identity
-//           </h2>
+      window.sessionStorage.removeItem("pendingSignupOtp");
+      setSuccessMessage("Verification successful. Redirecting...");
 
-//           <p className="text-sm text-gray-600">
-//             We sent a 6-digit code to <b>+91 ******9887</b>.  
-//             Please enter it below to secure your account.
-//           </p>
+      window.setTimeout(() => {
+        if (roleId === 1) {
+          router.push("/dashboard/returnee");
+        } else if (roleId === 2) {
+          router.push("/dashboard/state");
+        } else {
+          router.push("/dashboard/returnee");
+        }
+      }, 700);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "OTP verification failed.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
-//           <button className="text-sm text-green-700 hover:underline">
-//             Change phone number
-//           </button>
+  return (
+    <main className="min-h-screen flex items-center justify-center px-6">
+      <div className="w-full max-w-7xl rounded-2xl shadow grid md:grid-cols-2 overflow-hidden">
+        <div className="bg-green-800 text-white p-10 flex flex-col justify-between">
+          <div>
+            <span className="text-xs bg-green-700 px-3 py-1 rounded-full">
+              GOVERNMENT SERVICE
+            </span>
 
-//           {/* OTP INPUT */}
-//           <div className="flex gap-3 justify-center mt-4">
-//             {otp.map((digit, index) => (
-//               <input
-//                 key={index}
-//                 ref={(el) => (inputsRef.current[index] = el)}
-//                 value={digit}
-//                 onChange={(e) => handleChange(e.target.value, index)}
-//                 maxLength={1}
-//                 className="w-12 h-12 text-center text-lg border rounded-md
-//                   focus:outline-none focus:ring-2 focus:ring-green-600"
-//               />
-//             ))}
-//           </div>
+            <h2 className="text-3xl font-semibold mt-6">
+              Secure & Seamless
+              <br />
+              Reintegration
+            </h2>
 
-//           <p className="text-xs text-gray-500">
-//             ⏱ Code expires in <span className="text-green-700">01:59</span>
-//           </p>
+            <p className="mt-4 text-green-100 text-sm">
+              Access welfare schemes, financial aid and support services
+              designed for Non-Resident Keralites.
+            </p>
+          </div>
 
-//           <p className="text-xs text-gray-500">
-//             Didn’t receive code?{" "}
-//             <button className="text-green-700 hover:underline">
-//               Resend OTP
-//             </button>
-//           </p>
+          <div className="bg-green-700/60 rounded-lg p-4 text-sm">
+            Need Help? <br />
+            Call: 1800 123 456 789
+          </div>
+        </div>
 
-//           {/* VERIFY BUTTON */}
-//           <button
-//             onClick={handleVerify}
-//             className="w-full bg-lime-500 hover:bg-lime-600
-//               text-white py-3 rounded-full font-medium transition"
-//           >
-//             Verify & Proceed →
-//           </button>
+        <div className="p-10">
+          <h2 className="text-2xl font-semibold">OTP Verification</h2>
+          <p className="text-sm mt-2 text-gray-600">
+            Enter the 6-digit OTP sent to phone{" "}
+            <b>{context ? maskPhone(context.phone_number) : "******"}</b> and email{" "}
+            <b>{context ? maskEmail(context.email) : "***"}</b>.
+          </p>
 
-//           <p className="text-xs text-center text-gray-500">
-//             Need help? <span className="text-green-700">Contact Support</span>
-//           </p>
+          <div className="space-y-5 mt-6">
+            <div>
+              <p className="text-sm font-medium text-gray-700 mb-2">Phone OTP</p>
+              <div className="flex gap-2">
+                {phoneOtp.map((digit, index) => (
+                  <input
+                    key={`phone-${index}`}
+                    ref={(el) => {
+                      phoneOtpRefs.current[index] = el;
+                    }}
+                    value={digit}
+                    maxLength={1}
+                    onChange={(event) =>
+                      updateOtp(event.target.value, index, phoneOtp, setPhoneOtp, phoneOtpRefs)()
+                    }
+                    onKeyDown={handleOtpKeyDown(index, phoneOtp, phoneOtpRefs)}
+                    className="w-11 h-11 text-center border rounded-md focus:outline-none focus:ring-2 focus:ring-green-600"
+                  />
+                ))}
+              </div>
+            </div>
 
-//         </div>
-//       </div>
-//     </div>
-   //);
- }
+            <div>
+              <p className="text-sm font-medium text-gray-700 mb-2">Email OTP</p>
+              <div className="flex gap-2">
+                {emailOtp.map((digit, index) => (
+                  <input
+                    key={`email-${index}`}
+                    ref={(el) => {
+                      emailOtpRefs.current[index] = el;
+                    }}
+                    value={digit}
+                    maxLength={1}
+                    onChange={(event) =>
+                      updateOtp(event.target.value, index, emailOtp, setEmailOtp, emailOtpRefs)()
+                    }
+                    onKeyDown={handleOtpKeyDown(index, emailOtp, emailOtpRefs)}
+                    className="w-11 h-11 text-center border rounded-md focus:outline-none focus:ring-2 focus:ring-green-600"
+                  />
+                ))}
+              </div>
+            </div>
+
+            {errorMessage && <p className="text-sm text-red-600">{errorMessage}</p>}
+            {successMessage && <p className="text-sm text-green-700">{successMessage}</p>}
+
+            <div className="flex items-center justify-between gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => router.push("/signup")}
+                className="text-sm text-green-700 hover:underline"
+              >
+                Back to Sign up
+              </button>
+              <button
+                type="button"
+                onClick={handleVerify}
+                disabled={isSubmitting || !context}
+                className="bg-green-700 hover:bg-green-800 text-white px-6 py-2 rounded-md disabled:bg-green-300"
+              >
+                {isSubmitting ? "Verifying..." : "Verify & Create Profile"}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  );
+}

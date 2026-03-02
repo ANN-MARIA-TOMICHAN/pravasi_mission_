@@ -6,6 +6,7 @@ import { useTheme } from "next-themes";
 import { useLanguage } from "@/context/LanguageContext";
 import { useState } from "react";
 import { ThemeToggle } from "../theme-toggle";
+import { useProfileImage } from "@/lib/profileImage";
 export default function Header({
   onMenuClick,
 }: {
@@ -14,6 +15,7 @@ export default function Header({
   const { setTheme, resolvedTheme } = useTheme();
   const { language, toggleLanguage } = useLanguage();
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
+  const { profileImage } = useProfileImage("/assets/images/user_default.png");
 
   const isDark = resolvedTheme === "dark";
 
@@ -96,10 +98,11 @@ export default function Header({
 
           <button className="rounded-full hover:ring-2 hover:ring-green-200 transition">
             <Image
-              src="/assets/images/profile.png"
+              src={profileImage}
               alt="Profile"
               width={32}
               height={32}
+              unoptimized={profileImage.startsWith("data:")}
               className={`rounded-full ring-1
                 ${isDark ? "ring-green-100" : "ring-gray-300"}
               `}

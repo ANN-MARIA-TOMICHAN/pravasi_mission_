@@ -52,7 +52,7 @@ export default function LoginPage() {
       setSuccessMessage("Login successful.");
       if(resp.success===true){
         const accessToken = resp.data.access_token;
-        const refresh_token = resp.data.access_token;
+        const refresh_token = resp.data.refresh_token;
         const userDetails = resp.data.user;
         const roleId = resp.data.user.roles[0].role_id;
         const maxAgeSeconds = 60 * 60 * 24 * 7;

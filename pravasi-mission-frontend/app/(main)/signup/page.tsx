@@ -3,8 +3,10 @@
 import { Eye, EyeOff } from "lucide-react";
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 export default function SignupPage() {
+  const router = useRouter();
   const baseURL=process.env.NEXT_PUBLIC_BASE_URL
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
@@ -40,7 +42,7 @@ export default function SignupPage() {
     setIsSubmitting(true);
     try {
       const roles=[role]
-      const response = await fetch(`${baseURL}/api/auth/signup`, {
+      const response = await fetch(`${baseURL}/api/auth/signup/init`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -54,12 +56,27 @@ export default function SignupPage() {
         }),
       });
 
+      const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
-        const payload = await response.json().catch(() => ({}));
         throw new Error(payload?.message || "Signup failed.");
       }
 
-      setSuccessMessage("Account created successfully.");
+      const verificationId = payload?.data?.verification_id;
+      if (!verificationId) {
+        throw new Error("OTP verification session could not be created.");
+      }
+
+      const otpContext = {
+        verification_id: verificationId,
+        email: formState.email.trim(),
+        phone_country_code: "+91",
+        phone_number: formState.phoneNumber.trim(),
+        first_name: formState.firstName.trim(),
+        last_name: formState.lastName.trim(),
+      };
+      window.sessionStorage.setItem("pendingSignupOtp", JSON.stringify(otpContext));
+
+      setSuccessMessage("OTP sent successfully. Redirecting to verification...");
       setFormState({
         firstName: "",
         lastName: "",
@@ -68,6 +85,9 @@ export default function SignupPage() {
         password: "",
         confirmPassword: "",
       });
+      window.setTimeout(() => {
+        router.push("/otp-verification");
+      }, 500);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Signup failed.";

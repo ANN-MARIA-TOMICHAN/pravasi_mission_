@@ -4,6 +4,7 @@ import { ThemeProvider } from "next-themes";
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { useProfileImage } from "@/lib/profileImage";
 
 type ReturneeProfileResponse = {
   user?: {
@@ -89,6 +90,7 @@ const getWorkExperienceLabel = (value?: string | number) => {
 
 export default function ViewProfilePage() {
   const baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
+  const { profileImage } = useProfileImage("/assets/images/user_default.png");
   const [loading, setLoading] = useState(true);
   const [profileData, setProfileData] = useState<ReturneeProfileResponse>({});
   const [cookieUser, setCookieUser] = useState<Record<string, unknown> | null>(null);
@@ -225,7 +227,14 @@ export default function ViewProfilePage() {
         <ThemeProvider />
 
         <div className="flex items-center gap-4">
-          <Image src="/avatar.png" alt="Profile" width={64} height={64} className="rounded-full" />
+          <Image
+            src={profileImage}
+            alt="Profile"
+            width={64}
+            height={64}
+            unoptimized={profileImage.startsWith("data:")}
+            className="rounded-full object-cover w-16 h-16 border border-gray-300 dark:border-gray-700"
+          />
           <div>
             <h1 className="text-lg font-semibold text-gray-800 dark:text-gray-100">
               {loading ? "" : view.name}

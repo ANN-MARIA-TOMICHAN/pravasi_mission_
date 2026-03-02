@@ -1,11 +1,12 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { usePathname, useRouter } from 'next/navigation'
 import { useLanguage } from '@/context/LanguageContext'
 import { cn } from '@/lib/utils'
+import { useProfileImage } from '@/lib/profileImage'
 import { ThemeToggle } from '@/components/theme-toggle'
 import Footer from '@/components/Footer';
 
@@ -46,20 +47,144 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const [profileMenuOpen, setProfileMenuOpen] = useState(false)
   const pathname = usePathname()
   const router = useRouter()
+  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL
   const { language, toggleLanguage } = useLanguage()
+  const { profileImage } = useProfileImage('/assets/images/user_default.png')
   const profileMenuRef = useRef<HTMLDivElement>(null)
+  const isLoggingOutRef = useRef(false)
+  const idleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const idleMinutes = Number(process.env.NEXT_PUBLIC_IDLE_TIMEOUT_MINUTES || 15)
+  const refreshMinutes = Number(process.env.NEXT_PUBLIC_SESSION_REFRESH_MINUTES || 10)
+  const refreshCookieMaxAgeSeconds = 60 * 60 * 24 * 7
+
+  const readCookie = (name: string) => {
+    const cookieValue = `; ${document.cookie}`
+    const parts = cookieValue.split(`; ${name}=`)
+    if (parts.length === 2) {
+      return decodeURIComponent(parts.pop()?.split(';').shift() || '')
+    }
+    return null
+  }
 
   const clearCookie = (name: string) => {
     document.cookie = `${name}=; Max-Age=0; Path=/; SameSite=Lax`
   }
 
-  const handleLogout = () => {
-    clearCookie('accessToken')
-    clearCookie('refresh_token')
-    clearCookie('userDetails')
-    setProfileMenuOpen(false)
-    router.push('/login')
+  const setCookie = (name: string, value: string, maxAgeSeconds: number) => {
+    document.cookie = `${name}=${encodeURIComponent(value)}; Max-Age=${maxAgeSeconds}; Path=/; SameSite=Lax`
   }
+
+  const parseDurationToSeconds = (duration: string) => {
+    const match = duration.trim().match(/^(\d+)([smhd])$/i)
+    if (!match) return 15 * 60
+
+    const amount = Number(match[1])
+    const unit = match[2].toLowerCase()
+
+    if (unit === 's') return amount
+    if (unit === 'm') return amount * 60
+    if (unit === 'h') return amount * 60 * 60
+    return amount * 24 * 60 * 60
+  }
+
+  const performLogout = useCallback(async (callApi = true) => {
+    if (isLoggingOutRef.current) return
+    isLoggingOutRef.current = true
+
+    const refreshToken = readCookie('refresh_token')
+
+    try {
+      if (callApi && baseUrl && refreshToken) {
+        await fetch(`${baseUrl}/api/auth/logout`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refresh_token: refreshToken }),
+        })
+      }
+    } catch (error) {
+      console.error('Logout API call failed:', error)
+    } finally {
+      clearCookie('accessToken')
+      clearCookie('refresh_token')
+      clearCookie('userDetails')
+      setProfileMenuOpen(false)
+      router.push('/login')
+    }
+  }, [baseUrl, router])
+
+  const handleLogout = async () => {
+    await performLogout(true)
+  }
+
+  useEffect(() => {
+    if (!baseUrl) return
+
+    const refreshSession = async () => {
+      const refreshToken = readCookie('refresh_token')
+      if (!refreshToken) {
+        await performLogout(false)
+        return
+      }
+
+      try {
+        const response = await fetch(`${baseUrl}/api/auth/refresh`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refresh_token: refreshToken }),
+        })
+
+        if (!response.ok) {
+          await performLogout(false)
+          return
+        }
+
+        const payload = await response.json().catch(() => ({}))
+        const accessToken = payload?.data?.access_token
+        const newRefreshToken = payload?.data?.refresh_token
+        const accessTokenTtl = parseDurationToSeconds(payload?.data?.expires_in || '15m')
+
+        if (accessToken) setCookie('accessToken', accessToken, accessTokenTtl)
+        if (newRefreshToken) setCookie('refresh_token', newRefreshToken, refreshCookieMaxAgeSeconds)
+      } catch (error) {
+        console.error('Refresh API call failed:', error)
+      }
+    }
+
+    void refreshSession()
+    const intervalId = window.setInterval(refreshSession, Math.max(1, refreshMinutes) * 60 * 1000)
+    return () => window.clearInterval(intervalId)
+  }, [baseUrl, performLogout, refreshMinutes])
+
+  useEffect(() => {
+    const idleMs = Math.max(1, idleMinutes) * 60 * 1000
+    const activityEvents: (keyof WindowEventMap)[] = [
+      'click',
+      'keydown',
+      'mousemove',
+      'scroll',
+      'touchstart',
+    ]
+
+    const resetIdleTimer = () => {
+      if (idleTimeoutRef.current) window.clearTimeout(idleTimeoutRef.current)
+      idleTimeoutRef.current = window.setTimeout(() => {
+        void performLogout(true)
+      }, idleMs)
+    }
+
+    activityEvents.forEach((eventName) => {
+      window.addEventListener(eventName, resetIdleTimer, { passive: true })
+    })
+
+    resetIdleTimer()
+
+    return () => {
+      if (idleTimeoutRef.current) window.clearTimeout(idleTimeoutRef.current)
+      activityEvents.forEach((eventName) => {
+        window.removeEventListener(eventName, resetIdleTimer)
+      })
+    }
+  }, [idleMinutes, performLogout])
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -227,7 +352,14 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                   onClick={() => setProfileMenuOpen((prev) => !prev)}
                   className="rounded-full focus:outline-none focus:ring-2 focus:ring-green-500"
                 >
-                  <Image src="/assets/images/user_default.png" alt="Profile" width={32} height={32} className="rounded-full" />
+                  <Image
+                    src={profileImage}
+                    alt="Profile"
+                    width={32}
+                    height={32}
+                    unoptimized={profileImage.startsWith('data:')}
+                    className="rounded-full object-cover w-8 h-8"
+                  />
                 </button>
 
                 {profileMenuOpen && (

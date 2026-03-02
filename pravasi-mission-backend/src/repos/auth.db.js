@@ -94,26 +94,18 @@ const SQL = {
 
 // ---------------- DB ACTIONS ----------------
 
-async function saveUserWithRoles(firstName, lastName, email, phoneCountryCode, phoneNumber,passwordHash,roleIds,assignedBy,res) {
-  try {
-    const { rows } = await writePool.query(SQL.saveUserWithRoles, [
-        firstName,
-      lastName,
-      email,
-      phoneCountryCode,
-      phoneNumber,
-      passwordHash,
-      roleIds,
-      assignedBy
+async function saveUserWithRoles(firstName, lastName, email, phoneCountryCode, phoneNumber, passwordHash, roleIds, assignedBy) {
+  const { rows } = await writePool.query(SQL.saveUserWithRoles, [
+    firstName,
+    lastName,
+    email,
+    phoneCountryCode,
+    phoneNumber,
+    passwordHash,
+    roleIds,
+    assignedBy,
   ]);
-  return res.status(201).json({ success: true, data: rows[0]?.data });
-    }catch (err) {
-    // Unique violations
-    if (err.code === "23505") {
-      return res.status(409).json({ success: false, message: "Email or phone already exists" });
-    }
-    return res.status(500).json({ success: false, message: "Signup failed", error: err.message });
-  }
+  return rows[0]?.data || null;
 }
 
 async function findUserWithRoles({ email }) {

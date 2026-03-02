@@ -1,6 +1,9 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
+import { Pencil } from "lucide-react";
+import { useProfileImage } from "@/lib/profileImage";
 
 type FormState = {
   firstName: string;
@@ -54,6 +57,8 @@ type ReturneeProfileResponse = {
 
 export default function EditProfilePage() {
   const router = useRouter();
+  const profileFileInputRef = useRef<HTMLInputElement>(null);
+  const { profileImage, setProfileImage } = useProfileImage("/assets/images/user_default.png");
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [refreshToken, setRefreshToken] = useState<string | null>(null);
   const [userDetails, setUserDetails] = useState<Record<string, unknown> | null>(null);
@@ -428,6 +433,19 @@ export default function EditProfilePage() {
     .map((category) => getCategoryLabel(category))
     .filter((name) => name.length > 0);
 
+  const handleProfileImageUpload: React.ChangeEventHandler<HTMLInputElement> = (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        setProfileImage(reader.result);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
   const handleSave = async () => {
     if (!baseUrl) {
       setSaveError("Base URL is not configured.");
@@ -551,6 +569,41 @@ export default function EditProfilePage() {
     <div className="max-w-5xl mx-auto px-4 py-6">
       <div className="bg-white dark:bg-[#111827] rounded-xl shadow-sm dark:shadow-none border border-transparent dark:border-gray-800 p-6 space-y-10">
         <div>
+          <div className="mb-5 flex items-center gap-4">
+            <div className="relative">
+              <Image
+                src={profileImage}
+                alt="Profile"
+                width={64}
+                height={64}
+                unoptimized={profileImage.startsWith("data:")}
+                className="rounded-full object-cover w-16 h-16 border border-gray-300 dark:border-gray-700"
+              />
+              <button
+                type="button"
+                onClick={() => profileFileInputRef.current?.click()}
+                className="absolute -right-1 -bottom-1 rounded-full bg-green-700 text-white p-1.5 hover:bg-green-800"
+                aria-label="Upload profile image"
+                title="Upload profile image"
+              >
+                <Pencil size={12} />
+              </button>
+              <input
+                ref={profileFileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleProfileImageUpload}
+              />
+            </div>
+            <div>
+              <h1 className="text-base font-semibold text-gray-800 dark:text-gray-100">
+                {[formState.firstName, formState.lastName].filter(Boolean).join(" ") || "Profile"}
+              </h1>
+              <p className="text-sm text-green-700">ID: {userId ?? "--"}</p>
+            </div>
+          </div>
+
           <h1 className="text-lg font-semibold text-gray-800 dark:text-gray-100">Profile</h1>
           <p className="text-sm text-green-700 mt-1">
             Please enter your basic identification exactly as it appears on your passport. This
