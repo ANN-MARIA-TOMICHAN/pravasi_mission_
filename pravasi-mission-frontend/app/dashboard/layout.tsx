@@ -32,6 +32,8 @@ import {
   HelpCircle,
 } from 'lucide-react'
 
+const USER_DETAILS_UPDATED_EVENT = 'user-details-updated'
+
 const navItems = [
   { label: 'Dashboard', href: '/dashboard/returnee', icon: LayoutDashboard },
   { label: 'Recommended Schemes', href: '/dashboard/returnee/recommended_schemes', icon: Folder },
@@ -45,6 +47,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false)
   const [profileMenuOpen, setProfileMenuOpen] = useState(false)
+  const [displayName, setDisplayName] = useState('User')
   const pathname = usePathname()
   const router = useRouter()
   const baseUrl = process.env.NEXT_PUBLIC_BASE_URL
@@ -115,6 +118,32 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const handleLogout = async () => {
     await performLogout(true)
   }
+
+  useEffect(() => {
+    const syncDisplayName = () => {
+      const userDetailsRaw = readCookie('userDetails')
+      if (!userDetailsRaw) {
+        setDisplayName('User')
+        return
+      }
+
+      try {
+        const parsed = JSON.parse(userDetailsRaw) as { first_name?: string; last_name?: string; name?: string }
+        const fullName = [parsed.first_name, parsed.last_name].filter(Boolean).join(' ').trim() || parsed.name || 'User'
+        setDisplayName(fullName)
+      } catch {
+        setDisplayName('User')
+      }
+    }
+
+    syncDisplayName()
+    window.addEventListener('focus', syncDisplayName)
+    window.addEventListener(USER_DETAILS_UPDATED_EVENT, syncDisplayName)
+    return () => {
+      window.removeEventListener('focus', syncDisplayName)
+      window.removeEventListener(USER_DETAILS_UPDATED_EVENT, syncDisplayName)
+    }
+  }, [])
 
   useEffect(() => {
     if (!baseUrl) return
@@ -340,6 +369,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             </div>
 
             <div className="flex items-center gap-3">
+              <span className="hidden md:block text-sm text-gray-700 dark:text-gray-200">
+                {`Welcome, ${displayName}`}
+              </span>
               <ThemeToggle />
               <ShoppingCart className="text-gray-600 dark:text-gray-300" />
               <Bird size={16} strokeWidth={0.5} absoluteStrokeWidth />

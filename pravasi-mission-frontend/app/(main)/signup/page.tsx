@@ -41,11 +41,16 @@ export default function SignupPage() {
 
     setIsSubmitting(true);
     try {
+      if (!baseURL) {
+        throw new Error("NEXT_PUBLIC_BASE_URL is not configured.");
+      }
+
       const roles=[role]
       const response = await fetch(`${baseURL}/api/auth/signup/init`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          identifier: formState.email.trim().toLowerCase(),
           role_ids:roles,
           first_name: formState.firstName.trim(),
           last_name: formState.lastName.trim(),
@@ -61,18 +66,22 @@ export default function SignupPage() {
         throw new Error(payload?.message || "Signup failed.");
       }
 
+      const identifier = payload?.data?.identifier;
       const verificationId = payload?.data?.verification_id;
-      if (!verificationId) {
-        throw new Error("OTP verification session could not be created.");
+      if (!identifier) {
+        throw new Error("OTP identifier could not be created.");
       }
 
       const otpContext = {
         verification_id: verificationId,
+        identifier,
+        role_ids: roles,
         email: formState.email.trim(),
         phone_country_code: "+91",
         phone_number: formState.phoneNumber.trim(),
         first_name: formState.firstName.trim(),
         last_name: formState.lastName.trim(),
+        password: formState.password,
       };
       window.sessionStorage.setItem("pendingSignupOtp", JSON.stringify(otpContext));
 

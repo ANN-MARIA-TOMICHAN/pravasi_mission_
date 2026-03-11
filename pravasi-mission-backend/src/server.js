@@ -26,4 +26,35 @@ app.use("/api/returnee", returneeRoutes);
 app.use("/api/master", masterRoutes);
 
 const port = process.env.PORT || 3000;
-app.listen(port, () => console.log(`API running on :${port}`));
+
+async function ensureOtpSchema() {
+  await writePool.query(`CREATE EXTENSION IF NOT EXISTS pgcrypto;`);
+  await writePool.query(`
+    CREATE TABLE IF NOT EXISTS pravasi.otp_verifications (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      identifier text NOT NULL,
+      otp_code varchar(6) NOT NULL CHECK (otp_code ~ '^[0-9]{6}$'),
+      purpose text NOT NULL CHECK (purpose IN ('signup', 'forgot_password')),
+      created_at timestamptz NOT NULL DEFAULT now(),
+      expires_at timestamptz NOT NULL,
+      verified boolean NOT NULL DEFAULT false
+    );
+  `);
+  await writePool.query(`
+    CREATE INDEX IF NOT EXISTS idx_otp_verifications_identifier_purpose_created
+      ON pravasi.otp_verifications (identifier, purpose, created_at DESC);
+  `);
+  await writePool.query(`
+    CREATE INDEX IF NOT EXISTS idx_otp_verifications_identifier_purpose_verified
+      ON pravasi.otp_verifications (identifier, purpose, verified);
+  `);
+}
+
+ensureOtpSchema()
+  .then(() => {
+    app.listen(port, () => console.log(`API running on :${port}`));
+  })
+  .catch((err) => {
+    console.error("Failed to ensure OTP schema:", err.message);
+    process.exit(1);
+  });

@@ -5,24 +5,16 @@ const crypto = require("crypto");
 const authDB = require("../repos/auth.db");
 const { signAccessToken, signRefreshToken, verifyRefreshToken } = require("../utils/jwt");
 
-const OTP_EXPIRY_MINUTES = 10;
-const pendingSignupOtps = new Map();
+const OTP_EXPIRY_MINUTES = 3;
+const OTP_RATE_LIMIT_COUNT = 3;
+const OTP_RATE_LIMIT_WINDOW_MINUTES = 5;
+const OTP_PURPOSE = {
+  SIGNUP: "signup",
+  FORGOT_PASSWORD: "forgot_password",
+};
 
 function generateOtp() {
   return String(Math.floor(100000 + Math.random() * 900000));
-}
-
-function maskEmail(email) {
-  const [user, domain] = email.split("@");
-  if (!user || !domain) return email;
-  if (user.length <= 2) return `${user[0]}***@${domain}`;
-  return `${user.slice(0, 2)}***@${domain}`;
-}
-
-function maskPhone(phone) {
-  if (!phone) return "";
-  const last4 = phone.slice(-4);
-  return `******${last4}`;
 }
 
 function getRefreshExpiryDate() {
@@ -97,49 +89,168 @@ async function sendSmsOtp({ phoneCountryCode, phoneNumber, otp }) {
   });
   return true;
 }
-// POST /api/auth/signup
-router.post("/signup", async (req, res) => {
+function normalizeIdentifier(identifier) {
+  return String(identifier || "").trim().toLowerCase();
+}
+
+function isEmail(identifier) {
+  return identifier.includes("@");
+}
+
+function normalizePhoneIdentifier(phoneCountryCode, phoneNumber) {
+  return `${String(phoneCountryCode || "").trim()}${String(phoneNumber || "").replace(/\s+/g, "")}`;
+}
+
+function isEmailOtpConfigured() {
+  return Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
+}
+
+function isSmsOtpConfigured() {
+  return Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_FROM_NUMBER);
+}
+
+function canUseDevOtpFallback() {
+  if (process.env.OTP_DEV_FALLBACK === "true") return true;
+  return process.env.NODE_ENV !== "production";
+}
+
+function splitPhoneIdentifier(identifier) {
+  const normalized = String(identifier || "").replace(/\s+/g, "");
+  if (!normalized.startsWith("+")) return null;
+  const digits = normalized.slice(1);
+  if (!/^\d{8,15}$/.test(digits)) return null;
+  // Assumes country code max 3 digits.
+  const ccLength = digits.length > 10 ? digits.length - 10 : 2;
+  const countryCode = `+${digits.slice(0, ccLength)}`;
+  const phoneNumber = digits.slice(ccLength);
+  return { countryCode, phoneNumber };
+}
+
+async function createAndSendOtp({ identifier, purpose }) {
+  const requestCount = await authDB.countRecentOtpRequests({ identifier, purpose });
+  if (requestCount >= OTP_RATE_LIMIT_COUNT) {
+    const message = `Too many OTP requests. Max ${OTP_RATE_LIMIT_COUNT} requests in ${OTP_RATE_LIMIT_WINDOW_MINUTES} minutes.`;
+    const err = new Error(message);
+    err.statusCode = 429;
+    throw err;
+  }
+
+  const otp = generateOtp();
+  const expiresAt = new Date(Date.now() + OTP_EXPIRY_MINUTES * 60 * 1000);
+  await authDB.createOtpVerification({
+    identifier,
+    otpCode: otp,
+    purpose,
+    expiresAt,
+  });
+
+  if (isEmail(identifier)) {
+    if (isEmailOtpConfigured()) {
+      await sendEmailOtp({ email: identifier, otp });
+      return { delivery: "email" };
+    }
+  } else {
+    const phoneParts = splitPhoneIdentifier(identifier);
+    if (!phoneParts) throw new Error("Invalid phone identifier. Use E.164 format, e.g. +919876543210");
+    if (isSmsOtpConfigured()) {
+      await sendSmsOtp({
+        phoneCountryCode: phoneParts.countryCode,
+        phoneNumber: phoneParts.phoneNumber,
+        otp,
+      });
+      return { delivery: "sms" };
+    }
+  }
+
+  if (canUseDevOtpFallback()) {
+    console.warn(`[OTP DEV FALLBACK] identifier=${identifier} purpose=${purpose} otp=${otp}`);
+    return { delivery: "dev_fallback", devOtp: otp };
+  }
+
+  if (isEmail(identifier)) {
+    throw new Error("Email OTP service is not configured");
+  } else {
+    throw new Error("SMS OTP service is not configured");
+  }
+}
+
+async function handleSignupOtpInit(req, res) {
   const {
-    first_name,
-    last_name,
     email,
     phone_country_code = "+91",
     phone_number,
-    password,
-    role_ids,        // array of role IDs e.g. [1,3]
-    assigned_by = null
+    identifier,
   } = req.body || {};
 
-  if (!first_name || !last_name || !email || !phone_number || !password) {
-    return res.status(400).json({ success: false, message: "Missing required fields" });
+  if (!email || !phone_number) {
+    return res.status(400).json({ success: false, message: "email and phone_number are required" });
   }
 
-  if (!Array.isArray(role_ids) || role_ids.length === 0) {
-    return res.status(400).json({ success: false, message: "role_ids must be a non-empty array" });
+  const normalizedIdentifier = normalizeIdentifier(identifier || email);
+  if (!normalizedIdentifier) {
+    return res.status(400).json({ success: false, message: "identifier is required" });
   }
 
   try {
-    const password_hash = await bcrypt.hash(password, 10);
-    const data = await authDB.saveUserWithRoles(first_name,
-      last_name,
-      email,
-      phone_country_code,
-      phone_number,
-      password_hash,
-      role_ids,
-      assigned_by);
-    return res.status(201).json({ success: true, data });
-  } catch (err) {
-    if (err.code === "23505") {
+    const existingUser = await authDB.findUserByEmailOrPhone({
+      email: normalizeIdentifier(email),
+      phoneCountryCode: phone_country_code,
+      phoneNumber: phone_number,
+    });
+    if (existingUser) {
       return res.status(409).json({ success: false, message: "Email or phone already exists" });
     }
-    return res.status(500).json({ success: false, message: "Signup failed", error: err.message });
+
+    const verificationId = crypto.randomUUID();
+    const phoneIdentifier = normalizePhoneIdentifier(phone_country_code, phone_number);
+
+    const emailOtpDelivery = await createAndSendOtp({
+      identifier: normalizeIdentifier(email),
+      purpose: OTP_PURPOSE.SIGNUP,
+    });
+    const phoneOtpDelivery = await createAndSendOtp({
+      identifier: phoneIdentifier,
+      purpose: OTP_PURPOSE.SIGNUP,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "OTP sent successfully.",
+      data: {
+        verification_id: verificationId,
+        identifier: normalizedIdentifier,
+        email: normalizeIdentifier(email),
+        phone: phoneIdentifier,
+        purpose: OTP_PURPOSE.SIGNUP,
+        expires_in_minutes: OTP_EXPIRY_MINUTES,
+        email_delivery: emailOtpDelivery.delivery,
+        sms_delivery: phoneOtpDelivery.delivery,
+        ...(emailOtpDelivery.devOtp ? { dev_email_otp: emailOtpDelivery.devOtp } : {}),
+        ...(phoneOtpDelivery.devOtp ? { dev_phone_otp: phoneOtpDelivery.devOtp } : {}),
+      },
+    });
+  } catch (err) {
+    const status = err.statusCode || 500;
+    return res.status(status).json({ success: false, message: err.message || "Failed to send signup OTP" });
   }
-});
+}
+
+// POST /api/auth/signup
+// backward-compatible alias for OTP init
+router.post("/signup", handleSignupOtpInit);
 
 // POST /api/auth/signup/init
-router.post("/signup/init", async (req, res) => {
+// body: { email, phone_country_code, phone_number, identifier }
+router.post("/signup/init", handleSignupOtpInit);
+
+// POST /api/auth/signup/verify
+// body: { identifier, otp_code, first_name, last_name, email, phone_country_code, phone_number, password, role_ids, assigned_by }
+router.post("/signup/verify", async (req, res) => {
   const {
+    identifier,
+    otp_code,
+    email_otp,
+    phone_otp,
     first_name,
     last_name,
     email,
@@ -150,106 +261,79 @@ router.post("/signup/init", async (req, res) => {
     assigned_by = null,
   } = req.body || {};
 
+  const usingDualOtp = Boolean(email_otp && phone_otp);
+  if (!usingDualOtp && (!identifier || !otp_code)) {
+    return res.status(400).json({ success: false, message: "Provide email_otp and phone_otp, or identifier and otp_code" });
+  }
   if (!first_name || !last_name || !email || !phone_number || !password) {
-    return res.status(400).json({ success: false, message: "Missing required fields" });
+    return res.status(400).json({ success: false, message: "Missing required signup fields" });
   }
   if (!Array.isArray(role_ids) || role_ids.length === 0) {
     return res.status(400).json({ success: false, message: "role_ids must be a non-empty array" });
   }
 
   try {
-    const existingUser = await authDB.findUserWithRoles({ email });
-    if (existingUser) {
-      return res.status(409).json({ success: false, message: "Email already exists" });
+    if (usingDualOtp) {
+      const emailIdentifier = normalizeIdentifier(email);
+      const phoneIdentifier = normalizePhoneIdentifier(phone_country_code, phone_number);
+
+      const verifiedEmailOtp = await authDB.verifyOtpCode({
+        identifier: emailIdentifier,
+        otpCode: String(email_otp),
+        purpose: OTP_PURPOSE.SIGNUP,
+      });
+      if (!verifiedEmailOtp) {
+        return res.status(400).json({ success: false, message: "Invalid or expired email OTP" });
+      }
+
+      const verifiedPhoneOtp = await authDB.verifyOtpCode({
+        identifier: phoneIdentifier,
+        otpCode: String(phone_otp),
+        purpose: OTP_PURPOSE.SIGNUP,
+      });
+      if (!verifiedPhoneOtp) {
+        return res.status(400).json({ success: false, message: "Invalid or expired phone OTP" });
+      }
+    } else {
+      const normalizedIdentifier = normalizeIdentifier(identifier);
+      const verifiedOtp = await authDB.verifyOtpCode({
+        identifier: normalizedIdentifier,
+        otpCode: String(otp_code),
+        purpose: OTP_PURPOSE.SIGNUP,
+      });
+      if (!verifiedOtp) {
+        return res.status(400).json({ success: false, message: "Invalid or expired OTP" });
+      }
     }
 
-    const verificationId = crypto.randomUUID();
-    const emailOtp = generateOtp();
-    const phoneOtp = generateOtp();
-    const password_hash = await bcrypt.hash(password, 10);
+    const existingUser = await authDB.findUserByEmailOrPhone({
+      email: normalizeIdentifier(email),
+      phoneCountryCode: phone_country_code,
+      phoneNumber: phone_number,
+    });
+    if (existingUser) {
+      return res.status(409).json({ success: false, message: "Email or phone already exists" });
+    }
 
-    const expiresAt = Date.now() + OTP_EXPIRY_MINUTES * 60 * 1000;
-    pendingSignupOtps.set(verificationId, {
+    const password_hash = await bcrypt.hash(password, 10);
+    await authDB.saveUserWithRoles(
       first_name,
       last_name,
-      email,
+      normalizeIdentifier(email),
       phone_country_code,
       phone_number,
       password_hash,
       role_ids,
-      assigned_by,
-      emailOtp,
-      phoneOtp,
-      expiresAt,
-    });
-
-    try {
-      await sendEmailOtp({ email, otp: emailOtp });
-      await sendSmsOtp({ phoneCountryCode: phone_country_code, phoneNumber: phone_number, otp: phoneOtp });
-    } catch (sendErr) {
-      pendingSignupOtps.delete(verificationId);
-      return res.status(500).json({ success: false, message: "Failed to send OTP", error: sendErr.message });
-    }
-
-    return res.status(200).json({
-      success: true,
-      message: "OTP sent to email and phone.",
-      data: {
-        verification_id: verificationId,
-        email: maskEmail(email),
-        phone: maskPhone(phone_number),
-        expires_in_minutes: OTP_EXPIRY_MINUTES,
-        email_sent: true,
-        sms_sent: true,
-      },
-    });
-  } catch (err) {
-    return res.status(500).json({ success: false, message: "Failed to initialize signup OTP", error: err.message });
-  }
-});
-
-// POST /api/auth/signup/verify
-router.post("/signup/verify", async (req, res) => {
-  const { verification_id, email_otp, phone_otp } = req.body || {};
-  if (!verification_id || !email_otp || !phone_otp) {
-    return res.status(400).json({ success: false, message: "verification_id, email_otp, phone_otp required" });
-  }
-
-  const pending = pendingSignupOtps.get(verification_id);
-  if (!pending) {
-    return res.status(400).json({ success: false, message: "Invalid or expired verification session" });
-  }
-
-  if (Date.now() > pending.expiresAt) {
-    pendingSignupOtps.delete(verification_id);
-    return res.status(400).json({ success: false, message: "OTP expired. Please request a new OTP." });
-  }
-
-  if (String(email_otp) !== String(pending.emailOtp) || String(phone_otp) !== String(pending.phoneOtp)) {
-    return res.status(400).json({ success: false, message: "Invalid OTP" });
-  }
-
-  try {
-    await authDB.saveUserWithRoles(
-      pending.first_name,
-      pending.last_name,
-      pending.email,
-      pending.phone_country_code,
-      pending.phone_number,
-      pending.password_hash,
-      pending.role_ids,
-      pending.assigned_by
+      assigned_by
     );
 
-    const createdUser = await authDB.findUserWithRoles({ email: pending.email });
+    const createdUser = await authDB.findUserWithRoles({ email: normalizeIdentifier(email) });
     if (!createdUser) {
-      return res.status(500).json({ success: false, message: "User creation succeeded but user retrieval failed" });
+      return res.status(500).json({ success: false, message: "Failed to load created user" });
     }
 
     delete createdUser.password_hash;
     const tokens = await issueAuthTokens({ user: createdUser, req });
-
-    pendingSignupOtps.delete(verification_id);
 
     return res.status(201).json({
       success: true,
@@ -264,6 +348,116 @@ router.post("/signup/verify", async (req, res) => {
       return res.status(409).json({ success: false, message: "Email or phone already exists" });
     }
     return res.status(500).json({ success: false, message: "Failed to verify signup OTP", error: err.message });
+  }
+});
+
+// POST /api/auth/forgot-password/init
+// body: { identifier }
+router.post("/forgot-password/init", async (req, res) => {
+  const { identifier } = req.body || {};
+  const normalizedIdentifier = normalizeIdentifier(identifier);
+  if (!normalizedIdentifier) {
+    return res.status(400).json({ success: false, message: "identifier is required" });
+  }
+
+  try {
+    const user = await authDB.findUserByIdentifier({ identifier: normalizedIdentifier });
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    const otpDelivery = await createAndSendOtp({
+      identifier: normalizedIdentifier,
+      purpose: OTP_PURPOSE.FORGOT_PASSWORD,
+    });
+
+    return res.json({
+      success: true,
+      message: "OTP sent successfully.",
+      data: {
+        identifier: normalizedIdentifier,
+        purpose: OTP_PURPOSE.FORGOT_PASSWORD,
+        expires_in_minutes: OTP_EXPIRY_MINUTES,
+        delivery: otpDelivery.delivery,
+        ...(otpDelivery.devOtp ? { dev_otp: otpDelivery.devOtp } : {}),
+      },
+    });
+  } catch (err) {
+    const status = err.statusCode || 500;
+    return res.status(status).json({ success: false, message: err.message || "Failed to send forgot-password OTP" });
+  }
+});
+
+// POST /api/auth/forgot-password/verify
+// body: { identifier, otp_code }
+router.post("/forgot-password/verify", async (req, res) => {
+  const { identifier, otp_code } = req.body || {};
+  const normalizedIdentifier = normalizeIdentifier(identifier);
+
+  if (!normalizedIdentifier || !otp_code) {
+    return res.status(400).json({ success: false, message: "identifier and otp_code are required" });
+  }
+
+  try {
+    const verifiedOtp = await authDB.verifyOtpCode({
+      identifier: normalizedIdentifier,
+      otpCode: String(otp_code),
+      purpose: OTP_PURPOSE.FORGOT_PASSWORD,
+    });
+    if (!verifiedOtp) {
+      return res.status(400).json({ success: false, message: "Invalid or expired OTP" });
+    }
+
+    return res.json({
+      success: true,
+      message: "OTP verified successfully.",
+      data: {
+        identifier: normalizedIdentifier,
+        purpose: OTP_PURPOSE.FORGOT_PASSWORD,
+      },
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: "Failed to verify OTP", error: err.message });
+  }
+});
+
+// POST /api/auth/forgot-password/reset
+// body: { identifier, new_password }
+router.post("/forgot-password/reset", async (req, res) => {
+  const { identifier, new_password } = req.body || {};
+  const normalizedIdentifier = normalizeIdentifier(identifier);
+
+  if (!normalizedIdentifier || !new_password) {
+    return res.status(400).json({ success: false, message: "identifier and new_password are required" });
+  }
+
+  try {
+    const verifiedOtp = await authDB.getLatestVerifiedOtp({
+      identifier: normalizedIdentifier,
+      purpose: OTP_PURPOSE.FORGOT_PASSWORD,
+    });
+    if (!verifiedOtp) {
+      return res.status(400).json({ success: false, message: "OTP verification required before password reset" });
+    }
+
+    const user = await authDB.findUserByIdentifier({ identifier: normalizedIdentifier });
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    const passwordHash = await bcrypt.hash(new_password, 10);
+    await authDB.updatePasswordByIdentifier({
+      identifier: normalizedIdentifier,
+      passwordHash,
+    });
+    await authDB.expireVerifiedOtp({
+      identifier: normalizedIdentifier,
+      purpose: OTP_PURPOSE.FORGOT_PASSWORD,
+    });
+
+    return res.json({ success: true, message: "Password reset successful." });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: "Failed to reset password", error: err.message });
   }
 });
 

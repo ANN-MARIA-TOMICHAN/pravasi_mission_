@@ -4,12 +4,15 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 type PendingSignupOtp = {
-  verification_id: string;
+  verification_id?: string;
+  identifier: string;
+  role_ids: number[];
   email: string;
   phone_country_code: string;
   phone_number: string;
   first_name?: string;
   last_name?: string;
+  password?: string;
 };
 
 const OTP_LENGTH = 6;
@@ -21,11 +24,6 @@ function maskEmail(email: string) {
   return `${name.slice(0, 2)}***@${domain}`;
 }
 
-function maskPhone(phone: string) {
-  if (!phone) return "";
-  return `******${phone.slice(-4)}`;
-}
-
 export default function OTPVerificationPage() {
   const router = useRouter();
   const baseURL = process.env.NEXT_PUBLIC_BASE_URL;
@@ -35,6 +33,7 @@ export default function OTPVerificationPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [timeLeft, setTimeLeft] = useState(OTP_LENGTH * 30);
   const emailOtpRefs = useRef<(HTMLInputElement | null)[]>([]);
   const phoneOtpRefs = useRef<(HTMLInputElement | null)[]>([]);
 
@@ -47,10 +46,19 @@ export default function OTPVerificationPage() {
     try {
       const parsed = JSON.parse(saved) as PendingSignupOtp;
       setContext(parsed);
+      setTimeLeft(180);
     } catch {
       setErrorMessage("Invalid signup verification session. Please sign up again.");
     }
   }, []);
+
+  useEffect(() => {
+    if (timeLeft <= 0) return;
+    const timer = window.setInterval(() => {
+      setTimeLeft((prev) => prev - 1);
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [timeLeft]);
 
   const setCookie = (name: string, value: string, maxAgeSeconds: number) => {
     document.cookie = `${name}=${encodeURIComponent(value)}; Max-Age=${maxAgeSeconds}; Path=/; SameSite=Lax`;
@@ -97,6 +105,11 @@ export default function OTPVerificationPage() {
       return;
     }
 
+    if (!context.first_name || !context.last_name || !context.password || !context.role_ids?.length) {
+      setErrorMessage("Signup session data is incomplete. Please sign up again.");
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       const response = await fetch(`${baseURL}/api/auth/signup/verify`, {
@@ -106,6 +119,13 @@ export default function OTPVerificationPage() {
           verification_id: context.verification_id,
           email_otp: emailOtpCode,
           phone_otp: phoneOtpCode,
+          first_name: context.first_name,
+          last_name: context.last_name,
+          email: context.email,
+          phone_country_code: context.phone_country_code,
+          phone_number: context.phone_number,
+          password: context.password,
+          role_ids: context.role_ids,
         }),
       });
 
@@ -175,8 +195,12 @@ export default function OTPVerificationPage() {
           <h2 className="text-2xl font-semibold">OTP Verification</h2>
           <p className="text-sm mt-2 text-gray-600">
             Enter the 6-digit OTP sent to phone{" "}
-            <b>{context ? maskPhone(context.phone_number) : "******"}</b> and email{" "}
+            <b>{context ? `******${context.phone_number.slice(-4)}` : "******"}</b> and email{" "}
             <b>{context ? maskEmail(context.email) : "***"}</b>.
+          </p>
+          <p className="text-sm mt-1 text-gray-500">
+            Time remaining: {String(Math.floor(timeLeft / 60)).padStart(2, "0")}:
+            {String(timeLeft % 60).padStart(2, "0")}
           </p>
 
           <div className="space-y-5 mt-6">

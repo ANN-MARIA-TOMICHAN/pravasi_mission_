@@ -526,6 +526,7 @@ export default function EditProfilePage() {
       document.cookie = `userDetails=${encodeURIComponent(
         JSON.stringify(updatedUserDetails)
       )}; Max-Age=${maxAgeSeconds}; Path=/; SameSite=Lax`;
+      window.dispatchEvent(new Event("user-details-updated"));
       setUserDetails(updatedUserDetails);
 
       const latestProfileSnapshot = {
