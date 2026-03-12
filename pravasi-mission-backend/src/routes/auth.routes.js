@@ -4,6 +4,7 @@ const router = express.Router();
 const crypto = require("crypto");
 const authDB = require("../repos/auth.db");
 const { signAccessToken, signRefreshToken, verifyRefreshToken } = require("../utils/jwt");
+const { sendRegistrationNudgeEmail } = require("../services/email.service");
 
 const OTP_EXPIRY_MINUTES = 3;
 const OTP_RATE_LIMIT_COUNT = 3;
@@ -54,22 +55,12 @@ async function sendEmailOtp({ email, otp }) {
     throw new Error("Email OTP service is not configured");
   }
 
-  const nodemailer = require("nodemailer");
-  const transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port: Number(process.env.SMTP_PORT || 587),
-    secure: Number(process.env.SMTP_PORT || 587) === 465,
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
-    },
-  });
-
-  await transporter.sendMail({
-    from: process.env.SMTP_FROM_EMAIL || process.env.SMTP_USER,
+  const recipientName = String(email || "").split("@")[0] || "User";
+  await sendRegistrationNudgeEmail({
     to: email,
-    subject: "Your OTP Verification Code",
-    text: `Your OTP is ${otp}. It is valid for ${OTP_EXPIRY_MINUTES} minutes.`,
+    name: recipientName,
+    otp,
+    otpExpiryMinutes: OTP_EXPIRY_MINUTES,
   });
   return true;
 }
@@ -145,8 +136,16 @@ async function createAndSendOtp({ identifier, purpose }) {
   });
 
   if (isEmail(identifier)) {
+    let targetEmail = identifier;
+    if (purpose !== OTP_PURPOSE.SIGNUP) {
+      const existingUser = await authDB.findUserByIdentifier({ identifier: normalizeIdentifier(identifier) });
+      if (!existingUser) {
+        throw new Error("User not found for email OTP");
+      }
+      targetEmail = existingUser.email;
+    }
     if (isEmailOtpConfigured()) {
-      await sendEmailOtp({ email: identifier, otp });
+      await sendEmailOtp({ email: targetEmail, otp });
       return { delivery: "email" };
     }
   } else {

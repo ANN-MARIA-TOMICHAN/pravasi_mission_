@@ -1,6 +1,8 @@
 // import Navbar from "@/components/Navbar";
 import Hero from "@/components/Hero";
 import Commitment from "@/components/Commitment";
+import VisionMission from "@/components/VisionMission";
+import CoreVerticals from "@/components/CoreVerticals";
 import Stats from "@/components/Stats";
 import Schemes from "@/components/Schemes";
 import Projects from "@/components/Projects";
@@ -18,6 +20,8 @@ export default function Home() {
       {/* app/layout.tsx automatically renders across all pages like landing, signup, and login without repeating code. */}
       <Hero/>
       <Commitment/>
+      <VisionMission/>
+      <CoreVerticals/>
       <Stats/>
       <Schemes/>
       <Projects/>
