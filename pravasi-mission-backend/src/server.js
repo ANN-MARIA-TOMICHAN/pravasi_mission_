@@ -5,6 +5,7 @@ const cors = require("cors");
 const authRoutes = require("./routes/auth.routes");
 const returneeRoutes = require("./routes/returnee.routes");
 const masterRoutes = require("./routes/master.routes");
+const schemeRoutes = require("./routes/scheme.routes");
 const {writePool,readPool}=require('./db')
 const app = express();
 app.use(cors());
@@ -24,6 +25,7 @@ app.get("/health/db", async (req, res) => {
 app.use("/api/auth", authRoutes);
 app.use("/api/returnee", returneeRoutes);
 app.use("/api/master", masterRoutes);
+app.use("/api/schemes", schemeRoutes);
 
 const port = process.env.PORT || 3000;
 

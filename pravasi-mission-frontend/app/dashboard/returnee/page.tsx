@@ -5,9 +5,24 @@ import { FileText, Briefcase, Layers, CheckCircle } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
+type DashboardScheme = {
+  scheme_id?: number;
+  scheme_name?: string;
+  skill_sector?: string;
+  objective_purpose?: string;
+  target_beneficiaries?: string;
+  nature_of_assistance?: string;
+  scheme_type_name?: string;
+  category_name?: string;
+  department_agencies?: string[];
+};
+
 export default function ReturneeDashboardPage() {
   const { language } = useLanguage();
+  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
   const [displayName, setDisplayName] = useState("User");
+  const [loadingSchemes, setLoadingSchemes] = useState(true);
+  const [schemes, setSchemes] = useState<DashboardScheme[]>([]);
 
   useEffect(() => {
     const readCookie = (name: string) => {
@@ -32,6 +47,32 @@ export default function ReturneeDashboardPage() {
       setDisplayName("User");
     }
   }, []);
+
+  useEffect(() => {
+    if (!baseUrl) {
+      setLoadingSchemes(false);
+      return;
+    }
+
+    const loadSchemes = async () => {
+      try {
+        const response = await fetch(`${baseUrl}/api/schemes?limit=2`, {
+          method: "GET",
+          cache: "no-store",
+        });
+
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) return;
+
+        const data = ((payload as { data?: unknown })?.data ?? payload) as DashboardScheme[];
+        setSchemes(Array.isArray(data) ? data : []);
+      } finally {
+        setLoadingSchemes(false);
+      }
+    };
+
+    loadSchemes();
+  }, [baseUrl]);
 
   const t = useMemo(
     () => ({
@@ -74,6 +115,21 @@ export default function ReturneeDashboardPage() {
           ? "Special job fair for returnees in Kochi on Nov 15th. Register now."
           : "കൊച്ചിയിൽ നവംബർ 15ന് മടങ്ങിയെത്തിയ പ്രവാസികൾക്കായി പ്രത്യേക ജോബ് ഫെയർ. ഇപ്പോൾ രജിസ്റ്റർ ചെയ്യൂ.",
       readAllNews: language === "en" ? "Read all news" : "എല്ലാ വാർത്തകളും വായിക്കുക",
+      noSchemes:
+        language === "en"
+          ? "No scheme details available right now."
+          : "No scheme details available right now.",
+      schemeSector: language === "en" ? "Skill Sector" : "Skill Sector",
+      schemeObjective: language === "en" ? "Objective / Purpose" : "Objective / Purpose",
+      schemeBeneficiaries: language === "en" ? "Target Beneficiaries" : "Target Beneficiaries",
+      schemeDepartment: language === "en" ? "Department" : "Department",
+      schemeType: language === "en" ? "Scheme Type" : "Scheme Type",
+      schemeCategory: language === "en" ? "Category" : "Category",
+      schemeSupport: language === "en" ? "Support" : "Support",
+      schemeFooterLabel: language === "en" ? "Type" : "Type",
+      viewMoreSchemes: language === "en" ? "View" : "View",
+      exploreMoreSchemes:
+        language === "en" ? "Explore More Schemes" : "Explore More Schemes",
     }),
     [displayName, language]
   );
@@ -171,32 +227,49 @@ export default function ReturneeDashboardPage() {
         <div className="space-y-4 lg:col-span-2">
           <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100">{t.recommendedSchemes}</h2>
 
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          {loadingSchemes ? (
             <div className="rounded-lg bg-white p-5 shadow-sm dark:bg-gray-800">
-              <h3 className="font-semibold text-gray-800 dark:text-gray-100">NDPREM Business Loan</h3>
-              <p className="mt-1 text-sm text-gray-500">{t.schemeSubtitle}</p>
-              <div className="mt-4 flex items-center justify-between">
-                <span className="text-sm text-gray-500">{t.subsidy}</span>
-                <Link href="/dashboard/returnee/recommended_schemes/apply">
-                  <button className="rounded-md bg-green-800 px-4 py-1.5 text-sm text-white transition hover:bg-green-900">
-                    {t.applyNow}
-                  </button>
-                </Link>
-              </div>
+              <p className="text-sm text-gray-500">Loading...</p>
             </div>
+          ) : schemes.length > 0 ? (
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+              {schemes.map((scheme) => (
+                <div
+                  key={scheme.scheme_id ?? scheme.scheme_name}
+                  className="flex h-full min-h-[420px] flex-col rounded-3xl border border-gray-100 bg-white px-10 py-12 shadow-sm dark:border-gray-700 dark:bg-gray-800"
+                >
+                  <h3 className="max-w-[300px] text-[18px] font-bold uppercase tracking-wide leading-[1.7] text-gray-800 dark:text-gray-100">
+                    {scheme.scheme_name || "-"}
+                  </h3>
+                  <p className="mt-6 max-w-[320px] text-[14px] leading-[2] text-gray-500 dark:text-gray-400">
+                    {scheme.objective_purpose || scheme.nature_of_assistance || scheme.skill_sector || "-"}
+                  </p>
 
-            <div className="rounded-lg bg-white p-5 shadow-sm dark:bg-gray-800">
-              <h3 className="font-semibold text-gray-800 dark:text-gray-100">NDPREM Business Loan</h3>
-              <p className="mt-1 text-sm text-gray-500">{t.schemeSubtitle}</p>
-              <div className="mt-4 flex items-center justify-between">
-                <span className="text-sm text-gray-500">{t.subsidy}</span>
-                <Link href="/dashboard/returnee/recommended_schemes/apply">
-                  <button className="rounded-md bg-green-800 px-4 py-1.5 text-sm text-white transition hover:bg-green-900">
-                    {t.applyNow}
-                  </button>
-                </Link>
-              </div>
+                  <div className="mt-auto flex items-center justify-between gap-4 pt-10">
+                    <span className="text-[13px] text-gray-500 dark:text-gray-400">
+                      {t.schemeFooterLabel}: {scheme.scheme_type_name || scheme.category_name || "-"}
+                    </span>
+                    <Link href={`/dashboard/returnee/recommended_schemes/view?schemeId=${scheme.scheme_id}`}>
+                      <button className="rounded-2xl bg-green-800 px-10 py-4 text-sm font-medium text-white transition hover:bg-green-900">
+                        {t.viewMoreSchemes}
+                      </button>
+                    </Link>
+                  </div>
+                </div>
+              ))}
             </div>
+          ) : (
+            <div className="rounded-lg bg-white p-5 shadow-sm dark:bg-gray-800">
+              <p className="text-sm text-gray-500">{t.noSchemes}</p>
+            </div>
+          )}
+
+          <div className="flex justify-end">
+            <Link href="/dashboard/returnee/recommended_schemes">
+              <button className="rounded-xl border border-green-800 px-8 py-3 text-sm font-medium text-green-800 transition hover:bg-green-50 dark:border-green-600 dark:text-green-400 dark:hover:bg-gray-800">
+                {t.exploreMoreSchemes}
+              </button>
+            </Link>
           </div>
         </div>
 

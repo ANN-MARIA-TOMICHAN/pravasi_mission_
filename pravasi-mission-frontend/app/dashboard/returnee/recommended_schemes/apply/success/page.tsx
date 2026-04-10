@@ -5,12 +5,18 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 type ApplySchemeData = {
-  name: string;
-  dob: string;
-  email: string;
-  phone: string;
-  employment: string;
-  skills: string[];
+  scheme?: {
+    scheme_id?: number;
+    scheme_name?: string;
+  } | null;
+  applicant: {
+    name: string;
+    dob: string;
+    email: string;
+    phone: string;
+    employment: string;
+    skills: string[];
+  };
 };
 
 function generateApplicationId() {
@@ -53,7 +59,7 @@ export default function ApplySchemeSuccessPage() {
         </h1>
 
         <p className="text-sm text-gray-600 dark:text-gray-400 mt-2">
-          Your application for the Returnee Support Scheme has been successfully
+          Your application for {data.scheme?.scheme_name || "the selected scheme"} has been successfully
           submitted. You will receive an email confirmation shortly.
         </p>
 
@@ -65,11 +71,11 @@ export default function ApplySchemeSuccessPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
 
             <SummaryItem label="Application ID" value={applicationId} />
-            <SummaryItem label="Scheme Name" value="Returnee Support Scheme" />
-            <SummaryItem label="Applicant Name" value={data.name} />
+            <SummaryItem label="Scheme Name" value={data.scheme?.scheme_name || "-"} />
+            <SummaryItem label="Applicant Name" value={data.applicant.name} />
             <SummaryItem label="Submission Date" value={submissionDate} />
-            <SummaryItem label="Employment Status" value={data.employment} />
-            <SummaryItem label="Skills" value={data.skills.join(", ")} />
+            <SummaryItem label="Employment Status" value={data.applicant.employment} />
+            <SummaryItem label="Skills" value={data.applicant.skills.join(", ")} />
 
           </div>
         </div>

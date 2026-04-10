@@ -4,12 +4,21 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 type ApplySchemeData = {
-  name: string;
-  dob: string;
-  email: string;
-  phone: string;
-  employment: string;
-  skills: string[];
+  scheme?: {
+    scheme_id?: number;
+    scheme_name?: string;
+    eligibility_criteria?: string;
+    objective_purpose?: string;
+    nature_of_assistance?: string;
+  } | null;
+  applicant: {
+    name: string;
+    dob: string;
+    email: string;
+    phone: string;
+    employment: string;
+    skills: string[];
+  };
 };
 
 export default function ApplySchemeReviewPage() {
@@ -39,18 +48,22 @@ export default function ApplySchemeReviewPage() {
         Review Application
       </h1>
 
-      <ReviewItem label="Name" value={data.name} />
-      <ReviewItem label="Date of Birth" value={data.dob} />
-      <ReviewItem label="Email" value={data.email} />
-      <ReviewItem label="Phone" value={data.phone} />
-      <ReviewItem label="Employment Status" value={data.employment} />
-      <ReviewItem label="Skills" value={data.skills.join(", ")} />
+      <ReviewItem label="Scheme Name" value={data.scheme?.scheme_name || "-"} />
+      <ReviewItem label="Eligibility" value={data.scheme?.eligibility_criteria || "-"} />
+      <ReviewItem label="Description" value={data.scheme?.objective_purpose || "-"} />
+      <ReviewItem label="Benefits" value={data.scheme?.nature_of_assistance || "-"} />
+      <ReviewItem label="Name" value={data.applicant.name} />
+      <ReviewItem label="Date of Birth" value={data.applicant.dob} />
+      <ReviewItem label="Email" value={data.applicant.email} />
+      <ReviewItem label="Phone" value={data.applicant.phone} />
+      <ReviewItem label="Employment Status" value={data.applicant.employment} />
+      <ReviewItem label="Skills" value={data.applicant.skills.join(", ")} />
 
       <div className="flex justify-between mt-6">
         <button
           onClick={() =>
             router.push(
-              "/dashboard/returnee/recommended_schemes/apply"
+              `/dashboard/returnee/recommended_schemes/apply${data.scheme?.scheme_id ? `?schemeId=${data.scheme.scheme_id}` : ""}`
             )
           }
           className="border px-6 py-2 rounded-md"

@@ -17,10 +17,10 @@ function buildRegistrationEmail({ name, otp, otpExpiryMinutes }) {
     <p>We noticed that your registration on the Kerala Pravasi Mission portal is currently incomplete.</p>
     <p>To access the portal and benefit from upcoming services — which will be available only to fully registered and approved users — we kindly request you to complete your registration at the earliest by submitting the remaining details.</p>
     <p>We’re also happy to inform you that the Kerala Pravasi Mission Mobile App has now been officially launched! You can now access all services and updates conveniently from your mobile device.</p>
-    <p>Android Play Store: <a href="https://play.google.com/store/apps/details?id=com.cdipd.norka">Click here</a></p>
-    <p>Apple App Store: <a href="https://apps.apple.com/in/app/lokakeralamonline/id6740562302">Click here</a></p>
-    <p>If you need any assistance, feel free to contact our support team.</p>
-    <p>Call/WhatsApp 9446303339 | 9446423339</p>
+    // <p>Android Play Store: <a href="https://play.google.com/store/apps/details?id=com.cdipd.norka">Click here</a></p>
+    // <p>Apple App Store: <a href="https://apps.apple.com/in/app/lokakeralamonline/id6740562302">Click here</a></p>
+    // <p>If you need any assistance, feel free to contact our support team.</p>
+    // <p>Call/WhatsApp 9446303339 | 9446423339</p>
     <p>Thanks!</p>
   `;
 
@@ -31,12 +31,12 @@ function buildRegistrationEmail({ name, otp, otpExpiryMinutes }) {
     "We noticed that your registration on the Kerala Pravasi Mission portal is currently incomplete.",
     "To access the portal and benefit from upcoming services — which will be available only to fully registered and approved users — we kindly request you to complete your registration at the earliest by submitting the remaining details.",
     "We’re also happy to inform you that the Kerala Pravasi Mission Mobile App has now been officially launched! You can now access all services and updates conveniently from your mobile device.",
-    "Android Play Store: https://play.google.com/store/apps/details?id=com.cdipd.norka",
-    "Apple App Store: https://apps.apple.com/in/app/lokakeralamonline/id6740562302",
-    "",
-    "If you need any assistance, feel free to contact our support team.",
-    "Call/WhatsApp 9446303339 | 9446423339",
-    "Thanks!",
+    // "Android Play Store: https://play.google.com/store/apps/details?id=com.cdipd.norka",
+    // "Apple App Store: https://apps.apple.com/in/app/lokakeralamonline/id6740562302",
+    // "",
+    // "If you need any assistance, feel free to contact our support team.",
+    // "Call/WhatsApp 9446303339 | 9446423339",
+    // "Thanks!",
   ].filter(Boolean);
 
   return { html, text: textLines.join("\n") };
